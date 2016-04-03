@@ -33,7 +33,103 @@ formatter = logging.Formatter('%(name)-12s: %(levelname)-8s %(message)s')
 console.setFormatter(formatter)
 logging.getLogger('').addHandler(console)
 
-        
+
+def proc_line_struct(line):
+    result = is_structhead(line)
+    if not result:
+        return ""
+    else:
+        new_line = "message " + result + "\n"
+        return new_line
+
+
+def proc_line_start_or_end_of_struct(line):
+    result = is_start_or_end_of_struct(line)
+    if not result:
+        return ""
+
+    new_line = result + "\n"
+    return new_line
+
+
+def proc_line_error(line, total_line_no, readfile):
+    new_line = ""
+    if is_tobytes(line):
+        pass
+    elif re.match(r'^\s*$',line):
+        new_line = line
+    elif re.match(r'/\*.*\*/',line):
+        pass
+    else:
+        logging.error("line[" + str(total_line_no) + "] " + "file[" + readfile + "]")
+        new_line = ">>>>>>>>>>\n" + line + "<<<<<<<<<<\n"
+    return new_line
+
+
+def proc_line_vector(line, value_seq_no):
+    result = is_vector_define(line)
+    v_type = result.get(ValuePattern.value_type_name)
+    v_name = result.get(ValuePattern.value_name)
+    proto_type = vector_type_map.get(v_type)
+    if not proto_type:
+        proto_type = v_type
+
+    new_line = "{0}repeated {1} {2} = {3};\n".format(Constants.PRE_BLANK, proto_type, v_name,
+                                                     str(value_seq_no))
+    return new_line
+
+
+def proc_line_value(line, value_seq_no):
+    result = is_value_define(line)
+    v_type = result.get(ValuePattern.value_type_name)
+    v_name = result.get(ValuePattern.value_name)
+    proto_type = type_map.get(v_type)
+    '''solved: if contents pointer'''
+    if '*' in v_type or '*' in v_name:
+        v_type = 'int64'
+        proto_type = v_type
+        if '*' in v_name:
+            v_name = v_name[1:]
+    elif not proto_type:
+        type_map[v_type] = v_type
+        proto_type = v_type
+    new_line = "{0}optional {1} {2} = {3};\n".format(Constants.PRE_BLANK, proto_type, v_name,
+                                                     str(value_seq_no))
+    return new_line
+
+
+def proc_line_array(line, value_seq_no):
+    result = is_value_define(line)
+    v_type = result.get(ValuePattern.value_type_name)
+    v_name = result.get(ValuePattern.value_name)
+    length_name = result.get(ValuePattern.value_type_array_length_dimen_one)
+    line_type = "repeated "
+    proto_type = type_map.get(v_type)
+    if not proto_type:
+        type_map[v_type] = v_type
+        proto_type = v_type
+    elif v_type == 'VOS_UCHAR' or v_type == 'VOS_CHAR':
+        line_type = "optional "
+        if length_name in Constants.eight_length_value:
+            proto_type = "bytes "
+        else:
+            proto_type = "string "
+    new_line = "{0}{1}{2} {3} = {4};\n".format(Constants.PRE_BLANK, line_type, proto_type, v_name,
+                                               str(value_seq_no))
+    '''situation: two dimension'''
+    two_dimen_length = result.get(ValuePattern.value_type_array_length_dimen_two)
+
+    if two_dimen_length:
+        line_type = "repeated "
+        if two_dimen_length in Constants.eight_length_value:
+            proto_type = "bytes "
+        else:
+            proto_type = "string "
+        new_line = "{0}{1}{2} {3} = {4};\n".format(Constants.PRE_BLANK, line_type, proto_type, v_name,
+                                                   str(value_seq_no))
+
+    return new_line
+
 '''convert structs from 'readfile' to protocol store in 'writefile'''''
 
 
@@ -61,87 +157,27 @@ def struct_to_proto(readfile, writefile):
             line_type = get_line_type(line)
             '''if the start of structure'''
             if line_type == LineType.LINE_STRUCT:
-                result = is_structhead(line)
-                if not result:
-                    pass
-                else:
-                    new_line = "message " + result + "\n"
+                new_line = proc_line_struct(line)
 
             elif line_type == LineType.LINE_STARTOREND_STRUCT:
-
-                result = is_start_or_end_of_struct(line)
-                if not result:
-                    pass
                 value_seq_no = 0
-                new_line = result + "\n"
+                new_line = proc_line_start_or_end_of_struct(line)
+
             elif line_type == LineType.LINE_ARRAY:
                 value_seq_no += 1
-                result = is_value_define(line)
-                v_type = result.get(ValuePattern.value_type_name)
-                v_name = result.get(ValuePattern.value_name)
-                length_name = result.get(ValuePattern.value_type_array_length_dimen_one)
-                line_type = "repeated "
-                proto_type = type_map.get(v_type)
-                if not proto_type:
-                    type_map[v_type] = v_type
-                    proto_type = v_type
-                elif v_type == 'VOS_UCHAR' or v_type == 'VOS_CHAR':
-                    line_type = "optional "
-                    if length_name in Constants.eight_length_value:
-                        proto_type = "bytes "
-                    else:
-                        proto_type = "string "
-                new_line = "{0}{1}{2} {3} = {4};\n".format(Constants.PRE_BLANK, line_type, proto_type, v_name,
-                                                           str(value_seq_no))
-                '''situation: two dimension'''
-                two_dimen_length = result.get(ValuePattern.value_type_array_length_dimen_two)
-                if two_dimen_length:
-                    line_type = "repeated "
-                    if two_dimen_length in Constants.eight_length_value:
-                        proto_type = "bytes "
-                    else:
-                        proto_type = "string "
-                    new_line = "{0}{1}{2} {3} = {4};\n".format(Constants.PRE_BLANK, line_type, proto_type, v_name,
-                                                               str(value_seq_no))
+                new_line = proc_line_array(line, value_seq_no)
+
             elif line_type == LineType.LINE_VALUE:
                 value_seq_no += 1
-                result = is_value_define(line)
-                v_type = result.get(ValuePattern.value_type_name)
-                v_name = result.get(ValuePattern.value_name)
-                proto_type = type_map.get(v_type)
-                '''solved: if contents pointer'''
-                if '*' in v_type or '*' in v_name:
-                    v_type = 'int64'
-                    proto_type = v_type
-                    if '*' in v_name:
-                        v_name = v_name[1:]
-                elif not proto_type:
-                    type_map[v_type] = v_type
-                    proto_type = v_type
-                new_line = "{0}optional {1} {2} = {3};\n".format(Constants.PRE_BLANK, proto_type, v_name,
-                                                                 str(value_seq_no))
+                new_line = proc_line_value(line, value_seq_no)
+
             elif line_type == LineType.LINE_VECTOR:
                 value_seq_no += 1
-                result = is_vector_define(line)
-                v_type = result.get(ValuePattern.value_type_name)
-                v_name = result.get(ValuePattern.value_name)
-                proto_type = vector_type_map.get(v_type)
-                if not proto_type:
-                    proto_type = v_type
-
-                new_line = "{0}repeated {1} {2} = {3};\n".format(Constants.PRE_BLANK, proto_type, v_name,
-                                                                 str(value_seq_no))
+                new_line = proc_line_vector(line, value_seq_no)
 
             elif line_type == LineType.LINE_OTHER:
-                if is_tobytes(line):
-                    pass
-                elif re.match(r'^\s*$',line):
-                    new_line = line
-                elif re.match(r'/\*.*\*/',line):
-                    pass
-                else:
-                    logging.error("line[" + str(total_line_no) + "] " + "file[" + readfile + "]")
-                    new_line = ">>>>>>>>>>\n" + line + "<<<<<<<<<<\n"
+                new_line = proc_line_error(line, total_line_no, readfile)
+
             new_file_content.append(new_line)
 
     with open(writefile, "w") as outfile:
