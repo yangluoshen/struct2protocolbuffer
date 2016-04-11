@@ -1,5 +1,6 @@
 # -*- encode:utf-8 -*-
 
+
 '''
 author : s00357558 shenweimin
 function :  convert struct to proto
